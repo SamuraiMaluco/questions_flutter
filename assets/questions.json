@@ -1,0 +1,5 @@
+[
+  { "id": "q_nome",     "text": "Qual é o seu nome completo?", "type": "text" },
+  { "id": "q_email",    "text": "Qual é o seu e-mail?",        "type": "email" },
+  { "id": "q_password", "text": "Crie uma senha segura.",      "type": "password" }
+]
