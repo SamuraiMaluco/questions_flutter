@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../models/questionnaire.dart';
+import '../../models/question.dart';
 
 class QuizScreen extends StatefulWidget {
   final String questionnaireId;
@@ -24,6 +24,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
   List<Question> _questions = [];
   Map<String, dynamic> _answers = {};
+  Map<String, bool> _results = {};
   int _currentPage = 0;
   bool _isLoading = true;
 
@@ -49,10 +50,23 @@ class _QuizScreenState extends State<QuizScreen> {
     });
   }
 
-  // Avança para o próximo slide
-  void _nextQuestion(dynamic answer) {
+  // Verifica se a resposta está correta
+  bool _checkAnswer(Question question, String answer) {
+    final correct = question.correctAnswer.trim().toLowerCase();
+    final given = answer.trim().toLowerCase();
+    if (correct.isEmpty) return true; // sem gabarito = sempre certo
+    return given == correct;
+  }
+
+  void _nextQuestion(String answer) {
     final question = _questions[_currentPage];
-    setState(() => _answers[question.id] = answer);
+    final isCorrect = _checkAnswer(question, answer);
+
+    setState(() {
+      _answers[question.id] = answer;
+      _results[question.id] = isCorrect;
+    });
+
     _textController.clear();
 
     if (_currentPage < _questions.length - 1) {
@@ -66,7 +80,6 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  // Volta ao slide anterior
   void _previousQuestion() {
     if (_currentPage > 0) {
       _pageController.previousPage(
@@ -77,9 +90,15 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  // Salva as respostas no Firestore
   Future<void> _submitAnswers() async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    final totalQuestions = _questions.length;
+    final correctCount = _results.values.where((v) => v).length;
+    final score = totalQuestions > 0
+        ? (correctCount / totalQuestions * 100).round()
+        : 0;
+
     await _db
         .collection('questionnaires')
         .doc(widget.questionnaireId)
@@ -87,34 +106,113 @@ class _QuizScreenState extends State<QuizScreen> {
         .doc(uid)
         .set({
       'answers': _answers,
+      'results': _results,
+      'score': score,
+      'correctCount': correctCount,
+      'totalQuestions': totalQuestions,
       'submittedAt': FieldValue.serverTimestamp(),
     });
 
     if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          title: const Text('Concluído!'),
-          content: const Text('Suas respostas foram enviadas. Obrigado!'),
-          actions: [
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context); // fecha dialog
-                Navigator.pop(context); // volta para a lista
-              },
-              child: const Text('Voltar'),
+      _showReportDialog(score, correctCount, totalQuestions);
+    }
+  }
+
+  void _showReportDialog(int score, int correct, int total) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Resultado'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Nota em destaque
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: score >= 70 ? Colors.green : Colors.orange,
+              ),
+              child: Center(
+                child: Text(
+                  '$score%',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
+            const SizedBox(height: 16),
+            Text(
+              '$correct de $total acertos',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              score >= 70 ? 'Bom trabalho!' : 'Continue praticando!',
+              style: TextStyle(
+                color: score >= 70 ? Colors.green : Colors.orange,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Detalhes por pergunta
+            ...List.generate(_questions.length, (i) {
+              final q = _questions[i];
+              final isCorrect = _results[q.id] ?? false;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      isCorrect ? Icons.check_circle : Icons.cancel,
+                      color: isCorrect ? Colors.green : Colors.red,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Pergunta ${i + 1}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    if (!isCorrect)
+                      Text(
+                        'Correto: ${q.correctAnswer}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
-      );
-    }
+        actions: [
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            child: const Text('Voltar'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Scaffold(
@@ -122,7 +220,6 @@ class _QuizScreenState extends State<QuizScreen> {
         title: Text(widget.questionnaireTitle),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(4),
-          // Barra de progresso no topo
           child: LinearProgressIndicator(
             value: (_currentPage + 1) / _questions.length,
             backgroundColor: Colors.grey.shade200,
@@ -131,7 +228,7 @@ class _QuizScreenState extends State<QuizScreen> {
       ),
       body: PageView.builder(
         controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(), // só avança pelo botão
+        physics: const NeverScrollableScrollPhysics(),
         itemCount: _questions.length,
         itemBuilder: (context, index) {
           final question = _questions[index];
@@ -149,14 +246,12 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 }
 
-// ── Widget de cada slide ────────────────────────────────────
-
 class _QuestionSlide extends StatelessWidget {
   final Question question;
   final int questionNumber;
   final int totalQuestions;
   final TextEditingController textController;
-  final void Function(dynamic) onAnswer;
+  final void Function(String) onAnswer;
   final VoidCallback? onBack;
 
   const _QuestionSlide({
@@ -175,24 +270,20 @@ class _QuestionSlide extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Contador de perguntas
           Text(
             'Pergunta $questionNumber de $totalQuestions',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const SizedBox(height: 16),
-
-          // Texto da pergunta
           Text(
             question.text,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 32),
-
-          // Área de resposta — muda conforme o tipo
           Expanded(child: _buildAnswerWidget(context)),
-
-          // Botão voltar (se não for a primeira)
           if (onBack != null)
             TextButton.icon(
               onPressed: onBack,
@@ -206,8 +297,6 @@ class _QuestionSlide extends StatelessWidget {
 
   Widget _buildAnswerWidget(BuildContext context) {
     switch (question.type) {
-
-    // Sim / Não
       case 'yes_no':
         return Row(
           children: [
@@ -228,8 +317,6 @@ class _QuestionSlide extends StatelessWidget {
             ),
           ],
         );
-
-    // Múltipla escolha
       case 'multiple_choice':
         return ListView(
           children: question.options
@@ -241,13 +328,12 @@ class _QuestionSlide extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 alignment: Alignment.centerLeft,
               ),
-              child: Text(option, style: const TextStyle(fontSize: 16)),
+              child: Text(option,
+                  style: const TextStyle(fontSize: 16)),
             ),
           ))
               .toList(),
         );
-
-    // Texto livre (padrão)
       default:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -276,7 +362,6 @@ class _QuestionSlide extends StatelessWidget {
   }
 }
 
-// Botão grande para sim/não
 class _AnswerButton extends StatelessWidget {
   final String label;
   final Color color;
@@ -304,7 +389,10 @@ class _AnswerButton extends StatelessWidget {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-              fontSize: 22, fontWeight: FontWeight.bold, color: color),
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ),
     );

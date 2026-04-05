@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../models/questionnaire.dart';
+import '../../models/question.dart';
 
 class QuestionnaireEditorScreen extends StatefulWidget {
-  final String? questionnaireId; // null = criando novo
+  final String? questionnaireId;
 
   const QuestionnaireEditorScreen({super.key, this.questionnaireId});
 
@@ -34,7 +34,6 @@ class _QuestionnaireEditorScreenState
     }
   }
 
-  // Carrega dados existentes quando estiver editando
   Future<void> _loadExisting() async {
     final doc = await _db
         .collection('questionnaires')
@@ -42,8 +41,8 @@ class _QuestionnaireEditorScreenState
         .get();
 
     final data = doc.data()!;
-    _titleController.text = data['title'];
-    _descController.text = data['description'];
+    _titleController.text = data['title'] ?? '';
+    _descController.text = data['description'] ?? '';
 
     final questionsSnap = await _db
         .collection('questionnaires')
@@ -60,9 +59,9 @@ class _QuestionnaireEditorScreenState
     });
   }
 
-  // Abre um dialog para adicionar ou editar uma pergunta
   Future<void> _openQuestionDialog({Question? existing, int? index}) async {
     final textCtrl = TextEditingController(text: existing?.text ?? '');
+    final correctCtrl = TextEditingController(text: existing?.correctAnswer ?? '');
     String selectedType = existing?.type ?? 'text';
     final List<TextEditingController> optionCtrls = existing?.options
         .map((o) => TextEditingController(text: o))
@@ -79,7 +78,6 @@ class _QuestionnaireEditorScreenState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Texto da pergunta
                 TextField(
                   controller: textCtrl,
                   decoration: const InputDecoration(
@@ -89,10 +87,10 @@ class _QuestionnaireEditorScreenState
                   maxLines: 3,
                 ),
                 const SizedBox(height: 16),
-
-                // Tipo da pergunta
-                const Text('Tipo de resposta',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'Tipo de resposta',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 SegmentedButton<String>(
                   segments: const [
@@ -105,35 +103,50 @@ class _QuestionnaireEditorScreenState
                   onSelectionChanged: (val) =>
                       setDialogState(() => selectedType = val.first),
                 ),
+                const SizedBox(height: 16),
 
-                // Opções (só aparece se for múltipla escolha)
+                // Gabarito — aparece para todos os tipos
+                TextField(
+                  controller: correctCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Resposta correta (gabarito)',
+                    hintText: 'Ex: Sim / Paris / Revolução Francesa',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+
+                // Opções — só para múltipla escolha
                 if (selectedType == 'multiple_choice') ...[
                   const SizedBox(height: 16),
-                  const Text('Opções de resposta',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Opções de resposta',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
-                  ...optionCtrls.asMap().entries.map((entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: entry.value,
-                            decoration: InputDecoration(
-                              labelText: 'Opção ${entry.key + 1}',
-                              border: const OutlineInputBorder(),
+                  ...optionCtrls.asMap().entries.map(
+                        (entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: entry.value,
+                              decoration: InputDecoration(
+                                labelText: 'Opção ${entry.key + 1}',
+                                border: const OutlineInputBorder(),
+                              ),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline,
-                              color: Colors.red),
-                          onPressed: () => setDialogState(
-                                  () => optionCtrls.removeAt(entry.key)),
-                        ),
-                      ],
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline,
+                                color: Colors.red),
+                            onPressed: () => setDialogState(
+                                    () => optionCtrls.removeAt(entry.key)),
+                          ),
+                        ],
+                      ),
                     ),
-                  )),
+                  ),
                   TextButton.icon(
                     onPressed: () => setDialogState(
                             () => optionCtrls.add(TextEditingController())),
@@ -158,6 +171,7 @@ class _QuestionnaireEditorScreenState
                   text: textCtrl.text.trim(),
                   type: selectedType,
                   order: index ?? _questions.length,
+                  correctAnswer: correctCtrl.text.trim(),
                   options: optionCtrls
                       .map((c) => c.text.trim())
                       .where((o) => o.isNotEmpty)
@@ -182,7 +196,6 @@ class _QuestionnaireEditorScreenState
     );
   }
 
-  // Salva tudo no Firestore
   Future<void> _saveQuestionnaire() async {
     if (_titleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -200,7 +213,6 @@ class _QuestionnaireEditorScreenState
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Cria ou atualiza o documento principal
       DocumentReference docRef;
       if (_isEditing) {
         docRef = _db.collection('questionnaires').doc(widget.questionnaireId);
@@ -210,19 +222,15 @@ class _QuestionnaireEditorScreenState
         docRef = await _db.collection('questionnaires').add(data);
       }
 
-      // Apaga as perguntas antigas e reescreve (mais simples para edição)
-      final oldQuestions =
-      await docRef.collection('questions').get();
+      final oldQuestions = await docRef.collection('questions').get();
       for (final doc in oldQuestions.docs) {
         await doc.reference.delete();
       }
 
-      // Salva cada pergunta como subdocumento
       for (int i = 0; i < _questions.length; i++) {
-        final q = _questions[i];
         await docRef.collection('questions').add({
-          ...q.toMap(),
-          'order': i, // garante a ordem correta
+          ..._questions[i].toMap(),
+          'order': i,
         });
       }
 
@@ -246,10 +254,23 @@ class _QuestionnaireEditorScreenState
     }
   }
 
+  String _typeLabel(String type) {
+    switch (type) {
+      case 'yes_no':
+        return 'Sim / Não';
+      case 'multiple_choice':
+        return 'Múltipla escolha';
+      default:
+        return 'Resposta em texto';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Scaffold(
@@ -271,8 +292,6 @@ class _QuestionnaireEditorScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-
-          // ── Título e descrição ─────────────────────────────
           TextField(
             controller: _titleController,
             decoration: const InputDecoration(
@@ -290,13 +309,12 @@ class _QuestionnaireEditorScreenState
             maxLines: 2,
           ),
           const SizedBox(height: 24),
-
-          // ── Lista de perguntas ─────────────────────────────
           Row(
             children: [
-              const Text('Perguntas',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                'Perguntas',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               const Spacer(),
               TextButton.icon(
                 onPressed: _openQuestionDialog,
@@ -306,17 +324,16 @@ class _QuestionnaireEditorScreenState
             ],
           ),
           const SizedBox(height: 8),
-
           if (_questions.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Center(
-                child: Text('Nenhuma pergunta ainda. Toque em "Adicionar".',
-                    style: TextStyle(color: Colors.grey)),
+                child: Text(
+                  'Nenhuma pergunta ainda. Toque em "Adicionar".',
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
             ),
-
-          // Perguntas arrastáveis para reordenar
           ReorderableListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -334,9 +351,7 @@ class _QuestionnaireEditorScreenState
                 key: ValueKey(q.text + index.toString()),
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  leading: CircleAvatar(
-                    child: Text('${index + 1}'),
-                  ),
+                  leading: CircleAvatar(child: Text('${index + 1}')),
                   title: Text(q.text),
                   subtitle: Text(_typeLabel(q.type)),
                   trailing: Row(
@@ -344,8 +359,8 @@ class _QuestionnaireEditorScreenState
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit_outlined),
-                        onPressed: () => _openQuestionDialog(
-                            existing: q, index: index),
+                        onPressed: () =>
+                            _openQuestionDialog(existing: q, index: index),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline,
@@ -362,16 +377,5 @@ class _QuestionnaireEditorScreenState
         ],
       ),
     );
-  }
-
-  String _typeLabel(String type) {
-    switch (type) {
-      case 'yes_no':
-        return 'Sim / Não';
-      case 'multiple_choice':
-        return 'Múltipla escolha';
-      default:
-        return 'Resposta em texto';
-    }
   }
 }
