@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "323420085970",
+    "project_id": "app-questionarios",
+    "storage_bucket": "app-questionarios.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:323420085970:android:f350516e110839a89fd70b",
+        "android_client_info": {
+          "package_name": "com.example.lion_quests"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDo2oYvyHYdca6dXEzlo53_Pd7bgDPe6qo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
