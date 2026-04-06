@@ -4,20 +4,35 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ModerationScreen extends StatelessWidget {
   const ModerationScreen({super.key});
 
-  Future<void> _updateStatus(String uid, String status) async {
+  Future<void> _updateStatus(
+      BuildContext context,
+      String uid,
+      String status,
+      ) async {
     await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .update({'status': status});
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Status atualizado para $status'),
+      ),
+    );
   }
 
-  Future<void> _deleteUser(BuildContext context, String uid) async {
+  Future<void> _deleteUser(
+      BuildContext context,
+      String uid,
+      String nome,
+      ) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Excluir usuário'),
-        content: const Text(
-            'Tem certeza que deseja excluir este usuário permanentemente?'),
+        title: const Text('Remover usuário'),
+        content: Text('Tem certeza que deseja remover "$nome" permanentemente?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -25,8 +40,10 @@ class ModerationScreen extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Excluir'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Remover'),
           ),
         ],
       ),
@@ -37,6 +54,14 @@ class ModerationScreen extends StatelessWidget {
           .collection('users')
           .doc(uid)
           .delete();
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Usuário "$nome" removido com sucesso.'),
+        ),
+      );
     }
   }
 
@@ -59,21 +84,22 @@ class ModerationScreen extends StatelessWidget {
           children: [
             _UserList(
               status: 'pending',
-              onApprove: (uid) => _updateStatus(uid, 'approved'),
-              onReject: (uid) => _updateStatus(uid, 'rejected'),
-              onDelete: (uid) => _deleteUser(context, uid),
+              onApprove: (uid) => _updateStatus(context, uid, 'approved'),
+              onReject: (uid) => _updateStatus(context, uid, 'rejected'),
+              onDelete: (uid, nome) => _deleteUser(context, uid, nome),
             ),
             _UserList(
               status: 'approved',
               onApprove: null,
-              onReject: (uid) => _updateStatus(uid, 'rejected'),
-              onDelete: (uid) => _deleteUser(context, uid),
+              onReject: (uid) => _updateStatus(context, uid, 'pending'),
+              rejectLabel: 'Revogar',
+              onDelete: (uid, nome) => _deleteUser(context, uid, nome),
             ),
             _UserList(
               status: 'rejected',
-              onApprove: (uid) => _updateStatus(uid, 'approved'),
+              onApprove: (uid) => _updateStatus(context, uid, 'approved'),
               onReject: null,
-              onDelete: (uid) => _deleteUser(context, uid),
+              onDelete: (uid, nome) => _deleteUser(context, uid, nome),
             ),
           ],
         ),
@@ -86,14 +112,29 @@ class _UserList extends StatelessWidget {
   final String status;
   final void Function(String uid)? onApprove;
   final void Function(String uid)? onReject;
-  final void Function(String uid) onDelete;
+  final void Function(String uid, String nome) onDelete;
+  final String rejectLabel;
 
   const _UserList({
     required this.status,
     required this.onApprove,
     required this.onReject,
     required this.onDelete,
+    this.rejectLabel = 'Rejeitar',
   });
+
+  String _statusLabel() {
+    switch (status) {
+      case 'pending':
+        return 'pendente';
+      case 'approved':
+        return 'aprovado';
+      case 'rejected':
+        return 'rejeitado';
+      default:
+        return status;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -101,18 +142,23 @@ class _UserList extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('users')
           .where('status', isEqualTo: status)
-          .where('role', isEqualTo: 'user')
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
         }
 
-        final docs = snapshot.data?.docs ?? [];
+        final allDocs = snapshot.data?.docs ?? [];
+
+        final docs = allDocs
+            .where((d) => (d.data() as Map<String, dynamic>)['role'] != 'admin')
+            .toList();
 
         if (docs.isEmpty) {
           return Center(
-            child: Text('Nenhum usuário $status'),
+            child: Text('Nenhum usuário ${_statusLabel()}'),
           );
         }
 
@@ -139,36 +185,39 @@ class _UserList extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(data['email'] ?? ''),
+                    Text(
+                      data['email'] ?? '',
+                      style: const TextStyle(color: Colors.grey),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         if (onApprove != null)
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () => onApprove!(doc.id),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.green,
-                              ),
-                              child: const Text('Aprovar'),
+                          FilledButton(
+                            onPressed: () => onApprove!(doc.id),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.green,
                             ),
+                            child: const Text('Aprovar'),
                           ),
-                        if (onApprove != null) const SizedBox(width: 8),
                         if (onReject != null)
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => onReject!(doc.id),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.orange,
-                              ),
-                              child: const Text('Rejeitar'),
+                          OutlinedButton(
+                            onPressed: () => onReject!(doc.id),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.orange,
                             ),
+                            child: Text(rejectLabel),
                           ),
-                        if (onReject != null) const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              color: Colors.red),
-                          onPressed: () => onDelete(doc.id),
+                        OutlinedButton(
+                          onPressed: () => onDelete(doc.id, nome),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                          ),
+                          child: const Text('Remover'),
                         ),
                       ],
                     ),

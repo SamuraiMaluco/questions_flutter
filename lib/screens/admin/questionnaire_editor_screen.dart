@@ -72,6 +72,7 @@ class _QuestionnaireEditorScreenState
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
+          scrollable: true,
           title: Text(existing == null ? 'Nova pergunta' : 'Editar pergunta'),
           content: SingleChildScrollView(
             child: Column(

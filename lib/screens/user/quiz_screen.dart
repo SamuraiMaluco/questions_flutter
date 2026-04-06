@@ -34,6 +34,13 @@ class _QuizScreenState extends State<QuizScreen> {
     _loadQuestions();
   }
 
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _textController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadQuestions() async {
     final snap = await _db
         .collection('questionnaires')
@@ -53,6 +60,7 @@ class _QuizScreenState extends State<QuizScreen> {
   bool _checkAnswer(Question question, String answer) {
     final correct = question.correctAnswer.trim().toLowerCase();
     final given = answer.trim().toLowerCase();
+
     if (correct.isEmpty) return true;
     return given == correct;
   }
@@ -89,14 +97,15 @@ class _QuizScreenState extends State<QuizScreen> {
     }
   }
 
-  // ── Botão 3: reset do questionário ────────────────────────
   void _resetQuiz() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
+        scrollable: true,
         title: const Text('Reiniciar questionário'),
         content: const Text(
-            'Tem certeza que quer apagar suas respostas e começar do zero?'),
+          'Tem certeza que quer apagar suas respostas e começar do zero?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -126,9 +135,8 @@ class _QuizScreenState extends State<QuizScreen> {
 
     final totalQuestions = _questions.length;
     final correctCount = _results.values.where((v) => v).length;
-    final score = totalQuestions > 0
-        ? (correctCount / totalQuestions * 100).round()
-        : 0;
+    final score =
+    totalQuestions > 0 ? (correctCount / totalQuestions * 100).round() : 0;
 
     await _db
         .collection('questionnaires')
@@ -136,6 +144,9 @@ class _QuizScreenState extends State<QuizScreen> {
         .collection('responses')
         .doc(uid)
         .set({
+      'userId': uid,
+      'questionnaireId': widget.questionnaireId,
+      'questionnaireTitle': widget.questionnaireTitle,
       'answers': _answers,
       'results': _results,
       'score': score,
@@ -154,6 +165,7 @@ class _QuizScreenState extends State<QuizScreen> {
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
+        scrollable: true,
         title: const Text('Resultado'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -193,9 +205,11 @@ class _QuizScreenState extends State<QuizScreen> {
             ...List.generate(_questions.length, (i) {
               final q = _questions[i];
               final isCorrect = _results[q.id] ?? false;
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       isCorrect ? Icons.check_circle : Icons.cancel,
@@ -210,11 +224,14 @@ class _QuizScreenState extends State<QuizScreen> {
                       ),
                     ),
                     if (!isCorrect)
-                      Text(
-                        'Correto: ${q.correctAnswer}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
+                      Flexible(
+                        child: Text(
+                          'Correto: ${q.correctAnswer}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
                   ],
@@ -244,11 +261,31 @@ class _QuizScreenState extends State<QuizScreen> {
       );
     }
 
+    if (_questions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.questionnaireTitle),
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Este questionário ainda não possui perguntas.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.questionnaireTitle),
+        title: Text(
+          widget.questionnaireTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
-          // ── Botão 3: reset ──────────────────────────────
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Reiniciar questionário',
@@ -321,7 +358,6 @@ class _QuestionSlide extends StatelessWidget {
           ),
           const SizedBox(height: 32),
           Expanded(child: _buildAnswerWidget(context)),
-          // ── Botão 4: retroceder ─────────────────────────
           if (onBack != null)
             TextButton.icon(
               onPressed: onBack,
@@ -358,18 +394,22 @@ class _QuestionSlide extends StatelessWidget {
       case 'multiple_choice':
         return ListView(
           children: question.options
-              .map((option) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: OutlinedButton(
-              onPressed: () => onAnswer(option),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-                alignment: Alignment.centerLeft,
+              .map(
+                (option) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: OutlinedButton(
+                onPressed: () => onAnswer(option),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                  alignment: Alignment.centerLeft,
+                ),
+                child: Text(
+                  option,
+                  style: const TextStyle(fontSize: 16),
+                ),
               ),
-              child: Text(option,
-                  style: const TextStyle(fontSize: 16)),
             ),
-          ))
+          )
               .toList(),
         );
       default:
