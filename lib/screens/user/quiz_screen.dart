@@ -50,11 +50,10 @@ class _QuizScreenState extends State<QuizScreen> {
     });
   }
 
-  // Verifica se a resposta está correta
   bool _checkAnswer(Question question, String answer) {
     final correct = question.correctAnswer.trim().toLowerCase();
     final given = answer.trim().toLowerCase();
-    if (correct.isEmpty) return true; // sem gabarito = sempre certo
+    if (correct.isEmpty) return true;
     return given == correct;
   }
 
@@ -88,6 +87,38 @@ class _QuizScreenState extends State<QuizScreen> {
       );
       setState(() => _currentPage--);
     }
+  }
+
+  // ── Botão 3: reset do questionário ────────────────────────
+  void _resetQuiz() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reiniciar questionário'),
+        content: const Text(
+            'Tem certeza que quer apagar suas respostas e começar do zero?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _answers = {};
+                _results = {};
+                _currentPage = 0;
+              });
+              _textController.clear();
+              _pageController.jumpToPage(0);
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reiniciar'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _submitAnswers() async {
@@ -127,7 +158,6 @@ class _QuizScreenState extends State<QuizScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Nota em destaque
             Container(
               width: 100,
               height: 100,
@@ -160,7 +190,6 @@ class _QuizScreenState extends State<QuizScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            // Detalhes por pergunta
             ...List.generate(_questions.length, (i) {
               final q = _questions[i];
               final isCorrect = _results[q.id] ?? false;
@@ -218,6 +247,14 @@ class _QuizScreenState extends State<QuizScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.questionnaireTitle),
+        actions: [
+          // ── Botão 3: reset ──────────────────────────────
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reiniciar questionário',
+            onPressed: _resetQuiz,
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(4),
           child: LinearProgressIndicator(
@@ -284,6 +321,7 @@ class _QuestionSlide extends StatelessWidget {
           ),
           const SizedBox(height: 32),
           Expanded(child: _buildAnswerWidget(context)),
+          // ── Botão 4: retroceder ─────────────────────────
           if (onBack != null)
             TextButton.icon(
               onPressed: onBack,

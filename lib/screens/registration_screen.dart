@@ -21,6 +21,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   int _currentIndex = 0;
   bool _isLoading = true;
   bool _isSending = false;
+  bool _obscurePassword = true; // controla olhinho da senha
   String? _fieldError;
 
   @override
@@ -30,13 +31,54 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   Future<void> _loadQuestions() async {
-    final String raw =
-    await rootBundle.loadString('assets/questions.json');
+    final String raw = await rootBundle.loadString('assets/questions.json');
     final List<dynamic> data = jsonDecode(raw);
     setState(() {
       _questions.addAll(data.map((e) => Question.fromJson(e)));
       _isLoading = false;
     });
+  }
+
+  // ── Botão 4: retroceder para a pergunta anterior ───────────
+  void _previousQuestion() {
+    if (_currentIndex > 0) {
+      setState(() {
+        _currentIndex--;
+        _controller.text = _answers[_questions[_currentIndex].id] ?? '';
+        _fieldError = null;
+      });
+    }
+  }
+
+  // ── Botão 2: reset completo do cadastro ────────────────────
+  void _resetForm() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reiniciar cadastro'),
+        content: const Text(
+            'Tem certeza que quer apagar tudo e começar do zero?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _currentIndex = 0;
+                _answers.clear();
+                _controller.clear();
+                _fieldError = null;
+              });
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reiniciar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _submitAnswer() {
@@ -101,12 +143,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       setState(() => _isSending = false);
       if (error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
         );
       } else {
+        await AuthService().logout();
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -135,67 +175,128 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       );
     }
 
+    final isPasswordField =
+        _questions[_currentIndex].type == 'password';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadastro')),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: _currentIndex + 1,
-              itemBuilder: (context, index) {
-                final question = _questions[index];
-                final answer = _answers[question.id];
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _BotBubble(text: question.text),
-                    const SizedBox(height: 8),
-                    if (answer != null)
-                      _UserBubble(
-                        text: question.type == 'password'
-                            ? '••••••••'
-                            : answer,
-                      ),
-                    const SizedBox(height: 16),
-                  ],
-                );
-              },
-            ),
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        title: const Text('Cadastro'),
+        actions: [
+          // ── Botão 2: reset ─────────────────────────────────
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reiniciar cadastro',
+            onPressed: _resetForm,
           ),
-          if (_isSending)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: CircularProgressIndicator(),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      obscureText:
-                      _questions[_currentIndex].type == 'password',
-                      decoration: InputDecoration(
-                        hintText: 'Digite sua resposta...',
-                        border: const OutlineInputBorder(),
-                        errorText: _fieldError,
-                      ),
-                      onSubmitted: (_) => _submitAnswer(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: _submitAnswer,
-                    icon: const Icon(Icons.send),
-                  ),
-                ],
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ── barra de progresso ─────────────────────────
+            LinearProgressIndicator(
+              value: (_currentIndex + 1) / _questions.length,
+              backgroundColor: Colors.grey.shade200,
+            ),
+
+            // ── histórico do chat ──────────────────────────
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: _currentIndex + 1,
+                itemBuilder: (context, index) {
+                  final question = _questions[index];
+                  final answer = _answers[question.id];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _BotBubble(text: question.text),
+                      const SizedBox(height: 8),
+                      if (answer != null)
+                        _UserBubble(
+                          text: question.type == 'password'
+                              ? '••••••••'
+                              : answer,
+                        ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                },
               ),
             ),
-        ],
+
+            // ── botões de navegação ────────────────────────
+            if (!_isSending)
+              Padding(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Row(
+                  children: [
+                    // ── Botão 4: retroceder ─────────────────
+                    if (_currentIndex > 0)
+                      TextButton.icon(
+                        onPressed: _previousQuestion,
+                        icon: const Icon(Icons.arrow_back, size: 16),
+                        label: const Text('Voltar'),
+                      ),
+                  ],
+                ),
+              ),
+
+            // ── área de input ──────────────────────────────
+            if (_isSending)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        // ── Ajuste 1: olhinho e sem sugestões ──
+                        obscureText:
+                        isPasswordField && _obscurePassword,
+                        enableSuggestions: !isPasswordField,
+                        autocorrect: !isPasswordField,
+                        keyboardType: isPasswordField
+                            ? TextInputType.visiblePassword
+                            : TextInputType.text,
+                        decoration: InputDecoration(
+                          hintText: 'Digite sua resposta...',
+                          border: const OutlineInputBorder(),
+                          errorText: _fieldError,
+                          // ── olhinho aparece só no campo senha ──
+                          suffixIcon: isPasswordField
+                              ? IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () => setState(() =>
+                            _obscurePassword = !_obscurePassword),
+                          )
+                              : null,
+                        ),
+                        onSubmitted: (_) => _submitAnswer(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      onPressed: _submitAnswer,
+                      icon: const Icon(Icons.send),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

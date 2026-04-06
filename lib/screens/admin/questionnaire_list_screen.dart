@@ -63,14 +63,65 @@ class AdminQuestionnaireListScreen extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(q.description),
-                  trailing: const Icon(Icons.edit_outlined),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => QuestionnaireEditorScreen(
-                        questionnaireId: q.id,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => QuestionnaireEditorScreen(
+                              questionnaireId: q.id,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Excluir questionário'),
+                              content: Text(
+                                  'Tem certeza que deseja excluir "${q.title}"?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, false),
+                                  child: const Text('Cancelar'),
+                                ),
+                                FilledButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, true),
+                                  style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.red),
+                                  child: const Text('Excluir'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirm == true) {
+                            final questions = await FirebaseFirestore
+                                .instance
+                                .collection('questionnaires')
+                                .doc(q.id)
+                                .collection('questions')
+                                .get();
+                            for (final d in questions.docs) {
+                              await d.reference.delete();
+                            }
+                            await FirebaseFirestore.instance
+                                .collection('questionnaires')
+                                .doc(q.id)
+                                .delete();
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
               );

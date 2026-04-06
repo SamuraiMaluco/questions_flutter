@@ -1,13 +1,36 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  User? get currentUser => _auth.currentUser;
-
   Stream<User?> get authStateChanges => _auth.authStateChanges();
+
+  String? validateEmail(String email) {
+    if (email.isEmpty) {
+      return 'Informe o e-mail';
+    }
+
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      return 'E-mail inválido';
+    }
+
+    return null;
+  }
+
+  String? validatePassword(String password) {
+    if (password.isEmpty) {
+      return 'Informe a senha';
+    }
+
+    if (password.length < 6) {
+      return 'A senha deve ter pelo menos 6 caracteres';
+    }
+
+    return null;
+  }
 
   Future<String?> login(String email, String password) async {
     try {
@@ -19,14 +42,17 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
         case 'user-not-found':
-          return 'E-mail não cadastrado';
+          return 'Usuário não encontrado';
         case 'wrong-password':
-          return 'Senha incorreta';
         case 'invalid-credential':
           return 'E-mail ou senha inválidos';
+        case 'invalid-email':
+          return 'E-mail inválido';
         default:
           return 'Erro ao entrar: ${e.message}';
       }
+    } catch (_) {
+      return 'Erro inesperado ao entrar';
     }
   }
 
@@ -35,31 +61,31 @@ class AuthService {
   }
 
   Future<String?> getUserRole(String uid) async {
-    final doc = await _db.collection('users').doc(uid).get();
-    if (!doc.exists) return null;
-    final data = doc.data()!;
-    if (data['role'] == 'admin') return 'admin';
-    return data['status'] ?? 'pending';
-  }
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
 
-  String? validateEmail(String email) {
-    final regex = RegExp(r'^[\w.-]+@[\w.-]+\.\w{2,}$');
-    if (email.isEmpty) return 'E-mail obrigatório';
-    if (!regex.hasMatch(email)) return 'E-mail inválido';
-    return null;
-  }
+      if (!doc.exists) return null;
 
-  String? validatePassword(String password) {
-    if (password.length < 8) return 'Mínimo de 8 caracteres';
-    if (!password.contains(RegExp(r'[A-Z]'))) return 'Precisa de uma letra maiúscula';
-    if (!password.contains(RegExp(r'[0-9]'))) return 'Precisa de um número';
-    return null;
+      final data = doc.data();
+      if (data == null) return null;
+
+      final role = data['role']?.toString().trim().toLowerCase();
+      final status = data['status']?.toString().trim().toLowerCase();
+
+      // Admin sempre vai para a tela do admin
+      if (role == 'admin') return 'admin';
+
+      // Usuário comum retorna o status (pending, approved, rejected)
+      return status ?? 'pending';
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> registerUser({
     required String email,
     required String password,
-    required Map<String, String> profileData,
+    Map<String, dynamic>? profileData,
   }) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
@@ -68,10 +94,11 @@ class AuthService {
       );
 
       await _db.collection('users').doc(credential.user!.uid).set({
-        ...profileData,
         'email': email,
-        'role': 'user',
-        'status': 'pending',
+        'role': profileData?['role'] ?? 'user',
+        'status': profileData?['status'] ?? 'pending',
+        'ativo': profileData?['ativo'] ?? true,
+        ...?profileData,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -79,12 +106,16 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
         case 'email-already-in-use':
-          return 'Este e-mail já está cadastrado';
+          return 'Este e-mail já está em uso';
+        case 'invalid-email':
+          return 'E-mail inválido';
         case 'weak-password':
-          return 'Senha muito fraca';
+          return 'Senha fraca';
         default:
           return 'Erro ao cadastrar: ${e.message}';
       }
+    } catch (_) {
+      return 'Erro inesperado ao cadastrar';
     }
   }
 }
