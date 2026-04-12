@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/questionnaire.dart';
 import 'questionnaire_editor_screen.dart';
+import 'admin_profile_screen.dart';
 
 
 class AdminQuestionnaireListScreen extends StatelessWidget {
@@ -17,6 +18,15 @@ class AdminQuestionnaireListScreen extends StatelessWidget {
             icon: const Icon(Icons.people_outline),
             tooltip: 'Moderação',
             onPressed: () => Navigator.pushNamed(context, '/admin/moderation'),
+          ),
+          IconButton(                                          // ← adiciona isso
+          icon: const Icon(Icons.account_circle_outlined),
+          tooltip: 'Perfil',
+          onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+          builder: (_) => const AdminProfileScreen()),
+            ),
           ),
         ],
       ),
